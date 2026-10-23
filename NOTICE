@@ -1,0 +1,14 @@
+whatsapp-bridge/ and whatsapp-mcp-server/ are derived from
+https://github.com/lharries/whatsapp-mcp
+commit 7d6a06dcdce1f01dfb24f60e1030d5efba9f3b88
+
+Copyright (c) 2025 Luke Harries
+
+Licensed under the MIT License. See LICENSE. The same license file is
+included in whatsapp-bridge/ and whatsapp-mcp-server/. Keep that
+copyright notice and permission notice with any copy or substantial
+portion of those directories.
+
+This repository modifies that code and adds the digest agent, the
+Telegram bot, local Whisper, and the Compose setup. Those additions do
+not replace the original copyright on the derived bridge and MCP server.

@@ -1,0 +1,12 @@
+.env
+*.db
+*.db-wal
+*.db-shm
+qr.png
+whatsapp.log
+store/
+
+__pycache__/
+*.py[oc]
+.venv/
+*.egg-info/

@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "whisper-mcp"
+version = "0.1.0"
+description = "Local Whisper transcription MCP server"
+requires-python = ">=3.11"
+dependencies = [
+    "faster-whisper>=1.1.0",
+    # faster-whisper 1.2.1 passes metadata_errors to av.open. PyAV 19 removed that argument.
+    "av>=11,<19",
+    "mcp[cli]>=1.20.0,<2",
+]
+
+[tool.setuptools]
+py-modules = ["main", "transcribe"]

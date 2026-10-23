@@ -1,0 +1,5 @@
+.venv
+__pycache__
+*.py[oc]
+*.egg-info
+test_digest.py

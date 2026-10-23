@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "telegram-bot"
+version = "0.1.0"
+description = "Telegram bot that requests digests from the agent and posts them to a private channel"
+requires-python = ">=3.11"
+dependencies = [
+    "httpx>=0.28.1",
+    "python-telegram-bot>=21.6",
+]
+
+[tool.setuptools]
+py-modules = ["bot", "schedule"]

@@ -1,0 +1,94 @@
+services:
+  whatsapp-bridge:
+    build: ./whatsapp-bridge
+    restart: unless-stopped
+    environment:
+      STORE_DIR: /data
+      PORT: "8080"
+    volumes:
+      - whatsapp_store:/data
+    # The bridge API has no authentication. Keep it on localhost.
+    ports:
+      - "127.0.0.1:${BRIDGE_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 15s
+
+  whatsapp-mcp:
+    build: ./whatsapp-mcp-server
+    restart: unless-stopped
+    environment:
+      MESSAGES_DB_PATH: /data/messages.db
+      WHATSAPP_API_BASE_URL: http://whatsapp-bridge:8080/api
+      MCP_TRANSPORT: streamable-http
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: "8000"
+      ALLOWED_GROUP_1: ${ALLOWED_GROUP_1:-}
+      ALLOWED_GROUP_2: ${ALLOWED_GROUP_2:-}
+      ALLOWED_GROUP_3: ${ALLOWED_GROUP_3:-}
+      WHISPER_MCP_URL: ${WHISPER_MCP_URL:-http://whisper-mcp:8000/mcp}
+    volumes:
+      - whatsapp_store:/data
+    ports:
+      - "127.0.0.1:${MCP_PORT:-8000}:8000"
+    depends_on:
+      whatsapp-bridge:
+        condition: service_healthy
+      whisper-mcp:
+        condition: service_started
+
+  whisper-mcp:
+    build: ./whisper-mcp
+    restart: unless-stopped
+    environment:
+      WHISPER_MODEL: ${WHISPER_MODEL:-small}
+      WHISPER_LANGUAGE: ${WHISPER_LANGUAGE:-}
+      WHISPER_DEVICE: ${WHISPER_DEVICE:-cpu}
+      WHISPER_COMPUTE_TYPE: ${WHISPER_COMPUTE_TYPE:-int8}
+    volumes:
+      - whatsapp_store:/data:ro
+      - whisper_models:/models
+      - whisper_cache:/cache
+
+  agent:
+    build: ./agent
+    restart: unless-stopped
+    environment:
+      MCP_URL: http://whatsapp-mcp:8000/mcp
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-chat}
+      DIGEST_TIMEZONE: ${DIGEST_TIMEZONE:-Europe/Madrid}
+    depends_on:
+      whatsapp-mcp:
+        condition: service_started
+
+  telegram-bot:
+    build: ./telegram-bot
+    restart: unless-stopped
+    depends_on:
+      agent:
+        condition: service_started
+    environment:
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHANNEL_ID: ${TELEGRAM_CHANNEL_ID:-}
+      TELEGRAM_ALLOWED_USER_IDS: ${TELEGRAM_ALLOWED_USER_IDS:-}
+      AGENT_URL: ${AGENT_URL:-http://agent:8081}
+      DIGEST_TIMEZONE: ${DIGEST_TIMEZONE:-Europe/Madrid}
+      DIGEST_DAILY_AT: ${DIGEST_DAILY_AT:-}
+      DIGEST_WEEKLY_AT: ${DIGEST_WEEKLY_AT:-}
+      MESSAGE_BURST_INTERVAL_MINUTES: ${MESSAGE_BURST_INTERVAL_MINUTES:-15}
+      MESSAGE_BURST_THRESHOLD: ${MESSAGE_BURST_THRESHOLD:-50}
+      WHATSAPP_HEALTH_URL: ${WHATSAPP_HEALTH_URL:-http://whatsapp-bridge:8080/health}
+      BOT_STATE_PATH: /state/bot-state.json
+    volumes:
+      - bot_state:/state
+
+volumes:
+  whatsapp_store:
+  whisper_models:
+  whisper_cache:
+  bot_state:
