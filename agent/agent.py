@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 import httpx
 
 PAGE_SIZE = 100
+CHAT_PAGE_SIZE = 100
 MAX_MESSAGES_PER_GROUP = 500
 MAX_CHARS = 80_000
 EMPTY_PAGE = "No messages to display."
@@ -235,10 +236,22 @@ def mcp_url() -> str:
 
 
 def load_chats(client: McpClient) -> list[dict]:
-    chats = client.call("list_chats", {"limit": 20, "include_last_message": False})
-    if not isinstance(chats, list):
-        raise DigestError("The WhatsApp MCP server returned an unexpected chat list")
-    return [chat for chat in chats if isinstance(chat, dict) and chat.get("jid")]
+    chats = []
+    page = 0
+    while True:
+        batch = client.call("list_chats", {
+            "limit": CHAT_PAGE_SIZE,
+            "page": page,
+            "include_last_message": False,
+            "sort_by": "name",
+        })
+        if not isinstance(batch, list):
+            raise DigestError("The WhatsApp MCP server returned an unexpected chat list")
+        chats.extend(chat for chat in batch if isinstance(chat, dict) and chat.get("jid"))
+        if len(batch) < CHAT_PAGE_SIZE:
+            break
+        page += 1
+    return chats
 
 
 def select_chats(chats: list[dict], group: str | None) -> list[dict]:

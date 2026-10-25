@@ -29,8 +29,9 @@ class AllowlistTests(unittest.TestCase):
         self.db_path = os.path.join(self.tmp.name, "messages.db")
         whatsapp.MESSAGES_DB_PATH = self.db_path
         whatsapp.ALLOWED_CHAT_JIDS = None
-        for name in whatsapp.GROUP_ENV_VARS:
-            os.environ.pop(name, None)
+        for name in list(os.environ):
+            if name.startswith("ALLOWED_GROUP_"):
+                os.environ.pop(name, None)
         conn = sqlite3.connect(self.db_path)
         conn.execute("CREATE TABLE chats (jid TEXT PRIMARY KEY, name TEXT, last_message_time TEXT)")
         conn.execute(
@@ -178,7 +179,7 @@ class AllowlistTests(unittest.TestCase):
     def test_missing_unknown_ambiguous_and_duplicate_names(self):
         with self.assertRaises(whatsapp.AllowlistError) as missing:
             whatsapp.load_allowlist()
-        self.assertIn("At least one of ALLOWED_GROUP_1", str(missing.exception))
+        self.assertIn("At least one ALLOWED_GROUP_", str(missing.exception))
 
         os.environ["ALLOWED_GROUP_1"] = "Alpha"
         os.environ["ALLOWED_GROUP_2"] = "Nope"
@@ -201,6 +202,19 @@ class AllowlistTests(unittest.TestCase):
         with self.assertRaises(whatsapp.AllowlistError) as duplicate:
             whatsapp.load_allowlist()
         self.assertIn("must be different groups", str(duplicate.exception))
+
+    def test_numbered_groups_can_pass_three_and_skip_gaps(self):
+        os.environ["ALLOWED_GROUP_10"] = "Beta"
+        os.environ["ALLOWED_GROUP_2"] = "Alpha"
+        os.environ["ALLOWED_GROUP_3"] = "   "
+        os.environ["ALLOWED_GROUP_4"] = "Gamma"
+        os.environ["ALLOWED_GROUP_0"] = "Delta"
+        self.assertEqual(
+            whatsapp.load_allowlist(),
+            ("111@g.us", "333@g.us", "222@g.us"),
+        )
+        chats = whatsapp.list_chats(include_last_message=False, limit=50)
+        self.assertEqual({chat.jid for chat in chats}, {"111@g.us", "222@g.us", "333@g.us"})
 
 
 if __name__ == "__main__":

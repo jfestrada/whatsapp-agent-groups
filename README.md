@@ -48,7 +48,7 @@ cp .env.example .env
 docker compose up --build
 ```
 
-`whatsapp-mcp` exits until at least one of `ALLOWED_GROUP_1`, `ALLOWED_GROUP_2`, and `ALLOWED_GROUP_3` matches a group. Digest commands fail until `DEEPSEEK_API_KEY` is set.
+`whatsapp-mcp` exits until at least one `ALLOWED_GROUP_<number>` value matches a group. Digest commands fail until `DEEPSEEK_API_KEY` is set.
 
 Open [http://127.0.0.1:8080/](http://127.0.0.1:8080/) and scan the image from WhatsApp: **Settings → Linked devices → Link a device**. The page loads a new code every 15 seconds. A saved screenshot expires and WhatsApp will refuse it. The same code is also printed in `docker compose logs -f whatsapp-bridge`.
 
@@ -64,7 +64,9 @@ WhatsApp sends only a partial history when a device is linked, and that sync can
 
 ### 2. Choose the groups
 
-Set one, two, or three of `ALLOWED_GROUP_1`, `ALLOWED_GROUP_2`, and `ALLOWED_GROUP_3` to the exact group name shown in WhatsApp, or to a group JID ending in `@g.us`. The MCP server resolves those values once at startup. It exits if none are set, a value matches no group, a name matches more than one group, or two values resolve to the same group. An empty allowlist does not mean all chats.
+Set `ALLOWED_GROUP_1`, `ALLOWED_GROUP_2`, `ALLOWED_GROUP_3`, and any further `ALLOWED_GROUP_<number>` to the exact group name shown in WhatsApp, or to a group JID ending in `@g.us`. Numbers start at 1. A blank value is skipped, so `ALLOWED_GROUP_4` is included even when an earlier number is empty. The MCP server resolves the values that are set once at startup. It exits if none are set, a value matches no group, a name matches more than one group, or two values resolve to the same group. An empty allowlist does not mean all chats.
+
+Compose passes `.env` into `whatsapp-mcp` through `env_file`, which is what makes an added number visible inside the container. The other values in that file are present in the container environment as well. An `environment` entry for the same name replaces the file, so leave `ALLOWED_GROUP_*` out of that section. After editing `.env`, recreate the MCP service or the new number stays out of the running process.
 
 To see names and JIDs already stored by the bridge:
 
@@ -117,8 +119,8 @@ The clock lives in the bot, in `DIGEST_TIMEZONE` (default `Europe/Madrid`).
 
 - `DIGEST_DAILY_AT` (for example `08:00`) posts the daily digest once that local time has passed. An empty value turns it off.
 - `DIGEST_WEEKLY_AT` does the same on Friday. Friday can send both when both times are set.
-- If the container was down at that time, the next start sends the missed run once.
-- A scheduled run skips groups with no messages.
+- A start later that same day still sends the digest once. The weekly job only does this on Friday, so a missed Friday is not sent on Saturday.
+- A scheduled run posts one channel message per group that had messages in the window and skips the rest. A manual request still includes the empty groups as `Sin mensajes.`
 - A failed run posts the error to the channel and does not mark the day done, so a later check can retry.
 - `daily_sent_on` and `weekly_sent_on` are stored in `/state/bot-state.json` on the `bot_state` volume, so a restart does not post the same digest twice.
 
@@ -140,7 +142,7 @@ Every minute the bot calls `WHATSAPP_HEALTH_URL` (default `http://whatsapp-bridg
 
 The agent is the only caller of the WhatsApp MCP server and of DeepSeek. It does not open `messages.db`, it does not call Whisper, and it does not hold the Telegram token. Inside Compose it listens on port 8081 with no host port. `MCP_URL` defaults to `http://whatsapp-mcp:8000/mcp`.
 
-`daily` starts at local midnight in `DIGEST_TIMEZONE`. `weekly` starts at that midnight seven days earlier. For each selected group the agent pages `list_messages` with `include_context` false, newest first, 100 messages per page, at most 500 messages and 80,000 characters. Older messages beyond that cap are omitted and the summary says so.
+`daily` starts at local midnight in `DIGEST_TIMEZONE`. `weekly` starts at that midnight seven days earlier. The agent pages `list_chats` until every allowed group is included. For each selected group it pages `list_messages` with `include_context` false, newest first, 100 messages per page, at most 500 messages and 80,000 characters. Older messages beyond that cap are omitted and the summary says so.
 
 Each group with text gets its own DeepSeek call (`DEEPSEEK_API_KEY`, `DEEPSEEK_BASE_URL`, `DEEPSEEK_MODEL`). The prompt asks for one Spanish summary, treats a transcript as normal conversation, and forbids inventing the words of a leftover `[audio]` placeholder. A group with no messages returns `empty: true` and the fixed line `Sin mensajes.` without calling DeepSeek. An unknown group is HTTP 404. A missing DeepSeek key is HTTP 503, before any MCP call.
 
@@ -171,7 +173,7 @@ Copy [.env.example](.env.example) to `.env`. Compose reads that file for the val
 | Variable | Used by | Meaning |
 | --- | --- | --- |
 | `BRIDGE_PORT`, `MCP_PORT` | Compose | Host ports, bound to `127.0.0.1` |
-| `ALLOWED_GROUP_1` … `ALLOWED_GROUP_3` | WhatsApp MCP | One to three group names or `@g.us` JIDs |
+| `ALLOWED_GROUP_1`, `ALLOWED_GROUP_2`, … | WhatsApp MCP | One group name or `@g.us` JID per number. Add as many as you need |
 | `WHISPER_MCP_URL`, `WHISPER_MODEL`, `WHISPER_LANGUAGE`, `WHISPER_DEVICE` | WhatsApp MCP and Whisper | Local transcription |
 | `DEEPSEEK_API_KEY`, `DEEPSEEK_BASE_URL`, `DEEPSEEK_MODEL` | Agent | Digest model |
 | `DIGEST_TIMEZONE` | Agent and bot | Window and clock, default `Europe/Madrid` |

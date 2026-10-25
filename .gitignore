@@ -10,3 +10,8 @@ __pycache__/
 *.py[oc]
 .venv/
 *.egg-info/
+
+# Private registry build and deploy files
+scripts/build-and-push-images.sh
+docker-compose.publish.yml
+docker-compose.registry.yml

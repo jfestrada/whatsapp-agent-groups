@@ -20,15 +20,15 @@ services:
   whatsapp-mcp:
     build: ./whatsapp-mcp-server
     restart: unless-stopped
+    # Forwards every ALLOWED_GROUP_<n>. Do not repeat those keys under environment.
+    env_file:
+      - .env
     environment:
       MESSAGES_DB_PATH: /data/messages.db
       WHATSAPP_API_BASE_URL: http://whatsapp-bridge:8080/api
       MCP_TRANSPORT: streamable-http
       MCP_HOST: 0.0.0.0
       MCP_PORT: "8000"
-      ALLOWED_GROUP_1: ${ALLOWED_GROUP_1:-}
-      ALLOWED_GROUP_2: ${ALLOWED_GROUP_2:-}
-      ALLOWED_GROUP_3: ${ALLOWED_GROUP_3:-}
       WHISPER_MCP_URL: ${WHISPER_MCP_URL:-http://whisper-mcp:8000/mcp}
     volumes:
       - whatsapp_store:/data

@@ -1,4 +1,5 @@
 import os
+import re
 import sqlite3
 from datetime import datetime
 from dataclasses import dataclass
@@ -13,7 +14,7 @@ MESSAGES_DB_PATH = os.environ.get(
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "whatsapp-bridge", "store", "messages.db"),
 )
 WHATSAPP_API_BASE_URL = os.environ.get("WHATSAPP_API_BASE_URL", "http://localhost:8080/api")
-GROUP_ENV_VARS = ("ALLOWED_GROUP_1", "ALLOWED_GROUP_2", "ALLOWED_GROUP_3")
+GROUP_ENV_PATTERN = re.compile(r"^ALLOWED_GROUP_([1-9][0-9]*)$")
 # None means the allowlist has not been loaded. Tools then return no chat data.
 ALLOWED_CHAT_JIDS: Optional[Tuple[str, ...]] = None
 
@@ -45,21 +46,30 @@ def is_allowed_chat(jid: Optional[str]) -> bool:
     return bool(jid) and jid in allowed_jids()
 
 
-def load_allowlist() -> Tuple[str, ...]:
-    """Resolve the configured ALLOWED_GROUP_* values to group JIDs.
+def configured_groups() -> List[Tuple[str, str]]:
+    """Return non-empty ALLOWED_GROUP_<n> values in numeric order."""
+    found = []
+    for name, value in os.environ.items():
+        match = GROUP_ENV_PATTERN.match(name)
+        if not match:
+            continue
+        text = value.strip()
+        if text:
+            found.append((int(match.group(1)), name, text))
+    found.sort(key=lambda item: item[0])
+    return [(name, text) for _, name, text in found]
 
-    One, two, or three values may be set. Each name must match exactly one group.
+
+def load_allowlist() -> Tuple[str, ...]:
+    """Resolve the configured ALLOWED_GROUP_<n> values to group JIDs.
+
+    Any positive number may be set, and blank values are ignored. Each name
+    must match exactly one group.
     """
     global ALLOWED_CHAT_JIDS
-    provided = []
-    for name in GROUP_ENV_VARS:
-        value = os.environ.get(name, "").strip()
-        if value:
-            provided.append((name, value))
+    provided = configured_groups()
     if not provided:
-        raise AllowlistError(
-            "At least one of ALLOWED_GROUP_1, ALLOWED_GROUP_2, or ALLOWED_GROUP_3 is required"
-        )
+        raise AllowlistError("At least one ALLOWED_GROUP_<number> value is required")
 
     resolved = []
     conn = connect_db()
@@ -89,7 +99,7 @@ def load_allowlist() -> Tuple[str, ...]:
         conn.close()
 
     if len(set(resolved)) != len(resolved):
-        raise AllowlistError("ALLOWED_GROUP_1, ALLOWED_GROUP_2, and ALLOWED_GROUP_3 must be different groups")
+        raise AllowlistError("ALLOWED_GROUP_* values must be different groups")
 
     ALLOWED_CHAT_JIDS = tuple(resolved)
     for (name, value), jid in zip(provided, ALLOWED_CHAT_JIDS):
