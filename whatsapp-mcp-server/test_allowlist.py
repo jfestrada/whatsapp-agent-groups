@@ -1,6 +1,8 @@
+import json
 import os
 import sqlite3
 import tempfile
+import time
 import unittest
 
 import whatsapp
@@ -28,7 +30,8 @@ class AllowlistTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.db_path = os.path.join(self.tmp.name, "messages.db")
         whatsapp.MESSAGES_DB_PATH = self.db_path
-        whatsapp.ALLOWED_CHAT_JIDS = None
+        whatsapp.reset_allowlist_state()
+        os.environ.pop("ALLOWED_GROUPS_PATH", None)
         for name in list(os.environ):
             if name.startswith("ALLOWED_GROUP_"):
                 os.environ.pop(name, None)
@@ -66,8 +69,19 @@ class AllowlistTests(unittest.TestCase):
         conn.close()
 
     def tearDown(self):
-        whatsapp.ALLOWED_CHAT_JIDS = None
+        whatsapp.reset_allowlist_state()
+        os.environ.pop("ALLOWED_GROUPS_PATH", None)
         self.tmp.cleanup()
+
+    def write_selection(self, jids):
+        path = os.path.join(self.tmp.name, "allowed-groups.json")
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump({
+                "version": 1,
+                "saved_at": "2026-10-25T11:00:00Z",
+                "groups": [{"jid": jid, "name": "Saved"} for jid in jids],
+            }, handle)
+        return path
 
     def allow_names(self):
         os.environ["ALLOWED_GROUP_1"] = "Alpha"
@@ -215,6 +229,26 @@ class AllowlistTests(unittest.TestCase):
         )
         chats = whatsapp.list_chats(include_last_message=False, limit=50)
         self.assertEqual({chat.jid for chat in chats}, {"111@g.us", "222@g.us", "333@g.us"})
+
+    def test_saved_selection_replaces_environment_and_reloads(self):
+        os.environ["ALLOWED_GROUP_1"] = "Alpha"
+        self.write_selection(["333@g.us"])
+        self.assertEqual(whatsapp.allowed_jids(), ("333@g.us",))
+        chats = whatsapp.list_chats(include_last_message=False, limit=50)
+        self.assertEqual([chat.jid for chat in chats], ["333@g.us"])
+
+        path = self.write_selection([])
+        later = time.time() + 5
+        os.utime(path, (later, later))
+        with self.assertRaises(whatsapp.AllowlistError):
+            whatsapp.allowed_jids()
+        listed = whatsapp.list_messages(include_context=False, limit=50)
+        self.assertNotIn("alpha-secret", listed)
+        self.assertNotIn("gamma-secret", listed)
+
+        self.write_selection(["222@g.us"])
+        os.utime(path, (later + 5, later + 5))
+        self.assertEqual(whatsapp.allowed_jids(), ("222@g.us",))
 
 
 if __name__ == "__main__":

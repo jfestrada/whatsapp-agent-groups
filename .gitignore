@@ -3,6 +3,7 @@
 *.db-wal
 *.db-shm
 qr.png
+allowed-groups.json
 whatsapp.log
 store/
 

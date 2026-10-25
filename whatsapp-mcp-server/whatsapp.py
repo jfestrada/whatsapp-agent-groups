@@ -1,6 +1,7 @@
 import os
 import re
 import sqlite3
+import threading
 from datetime import datetime
 from dataclasses import dataclass
 from typing import Optional, List, Tuple
@@ -15,8 +16,12 @@ MESSAGES_DB_PATH = os.environ.get(
 )
 WHATSAPP_API_BASE_URL = os.environ.get("WHATSAPP_API_BASE_URL", "http://localhost:8080/api")
 GROUP_ENV_PATTERN = re.compile(r"^ALLOWED_GROUP_([1-9][0-9]*)$")
+GROUP_JID_PATTERN = re.compile(r"^[0-9A-Za-z._-]+@g\.us$")
 # None means the allowlist has not been loaded. Tools then return no chat data.
 ALLOWED_CHAT_JIDS: Optional[Tuple[str, ...]] = None
+_allowlist_lock = threading.Lock()
+_allowlist_source: Optional[str] = None
+_allowlist_stamp: Optional[tuple] = None
 
 
 class AllowlistError(Exception):
@@ -30,10 +35,78 @@ def connect_db() -> sqlite3.Connection:
     return conn
 
 
+def selection_path() -> str:
+    override = os.environ.get("ALLOWED_GROUPS_PATH", "").strip()
+    if override:
+        return override
+    return os.path.join(os.path.dirname(os.path.abspath(MESSAGES_DB_PATH)), "allowed-groups.json")
+
+
+def reset_allowlist_state() -> None:
+    """Drop the cached allowlist. Tests use this between cases."""
+    global ALLOWED_CHAT_JIDS, _allowlist_source, _allowlist_stamp
+    ALLOWED_CHAT_JIDS = None
+    _allowlist_source = None
+    _allowlist_stamp = None
+
+
+def _parse_selection(path: str) -> Tuple[str, ...]:
+    try:
+        with open(path, encoding="utf-8") as handle:
+            data = json.load(handle)
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise AllowlistError("Saved group selection could not be read") from exc
+    if not isinstance(data, dict) or data.get("version") != 1:
+        raise AllowlistError("Saved group selection could not be read")
+    groups = data.get("groups")
+    if not isinstance(groups, list):
+        raise AllowlistError("Saved group selection could not be read")
+    jids = []
+    for item in groups:
+        jid = item.get("jid") if isinstance(item, dict) else None
+        if not isinstance(jid, str) or not GROUP_JID_PATTERN.fullmatch(jid):
+            raise AllowlistError("Saved group selection could not be read")
+        if jid not in jids:
+            jids.append(jid)
+    return tuple(jids)
+
+
+def _apply_selection_file(path: str, stamp: tuple) -> None:
+    global ALLOWED_CHAT_JIDS, _allowlist_source, _allowlist_stamp
+    jids = _parse_selection(path)
+    if jids != ALLOWED_CHAT_JIDS:
+        if len(jids) == 1:
+            print("Allowing 1 saved group", flush=True)
+        elif jids:
+            print(f"Allowing {len(jids)} saved groups", flush=True)
+        else:
+            print("Saved group selection is empty", flush=True)
+    ALLOWED_CHAT_JIDS = jids
+    _allowlist_source = "file"
+    _allowlist_stamp = stamp
+
+
+def _refresh_allowlist() -> None:
+    """Prefer the selection file written by the bridge page, then ALLOWED_GROUP_*."""
+    path = selection_path()
+    try:
+        stat = os.stat(path)
+    except FileNotFoundError:
+        if _allowlist_source != "env":
+            load_allowlist()
+        return
+    stamp = (stat.st_mtime_ns, stat.st_size)
+    if _allowlist_source == "file" and _allowlist_stamp == stamp:
+        return
+    _apply_selection_file(path, stamp)
+
+
 def allowed_jids() -> Tuple[str, ...]:
-    if not ALLOWED_CHAT_JIDS:
-        raise AllowlistError("Group allowlist is not configured")
-    return ALLOWED_CHAT_JIDS
+    with _allowlist_lock:
+        _refresh_allowlist()
+        if not ALLOWED_CHAT_JIDS:
+            raise AllowlistError("Group allowlist is not configured")
+        return ALLOWED_CHAT_JIDS
 
 
 def in_clause(column: str) -> Tuple[str, Tuple[str, ...]]:
@@ -66,7 +139,7 @@ def load_allowlist() -> Tuple[str, ...]:
     Any positive number may be set, and blank values are ignored. Each name
     must match exactly one group.
     """
-    global ALLOWED_CHAT_JIDS
+    global ALLOWED_CHAT_JIDS, _allowlist_source
     provided = configured_groups()
     if not provided:
         raise AllowlistError("At least one ALLOWED_GROUP_<number> value is required")
@@ -102,6 +175,7 @@ def load_allowlist() -> Tuple[str, ...]:
         raise AllowlistError("ALLOWED_GROUP_* values must be different groups")
 
     ALLOWED_CHAT_JIDS = tuple(resolved)
+    _allowlist_source = "env"
     for (name, value), jid in zip(provided, ALLOWED_CHAT_JIDS):
         print(f"Allowing {name}={value} ({jid})", flush=True)
     return ALLOWED_CHAT_JIDS

@@ -48,9 +48,9 @@ cp .env.example .env
 docker compose up --build
 ```
 
-`whatsapp-mcp` exits until at least one `ALLOWED_GROUP_<number>` value matches a group. Digest commands fail until `DEEPSEEK_API_KEY` is set.
+Digest commands fail until `DEEPSEEK_API_KEY` is set. Group choice can wait until WhatsApp is linked.
 
-Open [http://127.0.0.1:8080/](http://127.0.0.1:8080/) and scan the image from WhatsApp: **Settings → Linked devices → Link a device**. The page loads a new code every 15 seconds. A saved screenshot expires and WhatsApp will refuse it. The same code is also printed in `docker compose logs -f whatsapp-bridge`.
+Open [http://127.0.0.1:8080/](http://127.0.0.1:8080/) and scan the image from WhatsApp: **Settings → Linked devices → Link a device**. The page loads a new code every 15 seconds. A saved screenshot expires and WhatsApp will refuse it. The same code is also printed in `docker compose logs -f whatsapp-bridge`. When the link succeeds, that same page replaces the QR code with the groups on the account.
 
 `GET /health` returns JSON:
 
@@ -64,23 +64,19 @@ WhatsApp sends only a partial history when a device is linked, and that sync can
 
 ### 2. Choose the groups
 
-Set `ALLOWED_GROUP_1`, `ALLOWED_GROUP_2`, `ALLOWED_GROUP_3`, and any further `ALLOWED_GROUP_<number>` to the exact group name shown in WhatsApp, or to a group JID ending in `@g.us`. Numbers start at 1. A blank value is skipped, so `ALLOWED_GROUP_4` is included even when an earlier number is empty. The MCP server resolves the values that are set once at startup. It exits if none are set, a value matches no group, a name matches more than one group, or two values resolve to the same group. An empty allowlist does not mean all chats.
+On [http://127.0.0.1:8080/](http://127.0.0.1:8080/), after the phone is linked:
 
-Compose passes `.env` into `whatsapp-mcp` through `env_file`, which is what makes an added number visible inside the container. The other values in that file are present in the container environment as well. An `environment` entry for the same name replaces the file, so leave `ALLOWED_GROUP_*` out of that section. After editing `.env`, recreate the MCP service or the new number stays out of the running process.
+1. The QR code is replaced by the groups on the account, listed by title.
+2. Search that list and tick the groups the assistant may read.
+3. Save. The page confirms how many groups were stored.
 
-To see names and JIDs already stored by the bridge:
+The bridge writes that choice to `allowed-groups.json` on the `whatsapp_store` volume, next to `messages.db`. The file mode is `0600`, and a save replaces it by renaming a temporary file so a restart cannot see a half-written list. The WhatsApp MCP server reads the file on the next request, so the container does not need to be recreated. Saving again replaces the previous choice, including a save with nothing ticked. An empty choice does not mean all chats. No group JID has to be copied into `.env`.
 
-```bash
-docker compose exec -T whatsapp-mcp python - < list_groups.py
-```
+`ALLOWED_GROUP_1`, `ALLOWED_GROUP_2`, and further `ALLOWED_GROUP_<number>` values still work until the first save. Each value is an exact group name or a JID ending in `@g.us`. A blank value is skipped. Once `allowed-groups.json` exists, it is the list the MCP server uses, and the environment variables are ignored. Compose passes `.env` into `whatsapp-mcp` through `env_file`. The other values in that file are present in the container environment as well. An `environment` entry for the same name replaces the file, so leave `ALLOWED_GROUP_*` out of that section.
 
-That prints `name<TAB>jid` for every group in `/data/messages.db`. It does not apply the allowlist. Put the chosen name or JID in `.env`, then recreate the MCP service:
+The bridge page and its group API have no authentication. Compose publishes them only on `127.0.0.1`.
 
-```bash
-docker compose up -d --force-recreate whatsapp-mcp
-```
-
-`list_chats`, `list_messages`, `count_messages`, `get_chat`, `get_message_context`, `get_last_interaction`, `get_contact_chats`, and `search_contacts` then return only the allowed groups and the people who wrote in them. `get_direct_chat_by_contact` returns nothing. `send_message`, `send_file`, `send_audio_message`, and `download_media` reject every other recipient.
+Saving a group also stores its title in `messages.db`, so it can appear in `/grupos` before any new message arrives. `list_chats`, `list_messages`, `count_messages`, `get_chat`, `get_message_context`, `get_last_interaction`, `get_contact_chats`, and `search_contacts` then return only the allowed groups and the people who wrote in them. `get_direct_chat_by_contact` returns nothing. `send_message`, `send_file`, `send_audio_message`, and `download_media` reject every other recipient.
 
 From the host, the MCP endpoint is `http://127.0.0.1:8000/mcp`. From another Compose service, use `http://whatsapp-mcp:8000/mcp`. To run the Python server on the machine instead of in Docker, set `MCP_TRANSPORT=stdio` and point `MESSAGES_DB_PATH` and `WHATSAPP_API_BASE_URL` at the bridge (`http://localhost:8080/api` by default outside Docker).
 
@@ -173,7 +169,7 @@ Copy [.env.example](.env.example) to `.env`. Compose reads that file for the val
 | Variable | Used by | Meaning |
 | --- | --- | --- |
 | `BRIDGE_PORT`, `MCP_PORT` | Compose | Host ports, bound to `127.0.0.1` |
-| `ALLOWED_GROUP_1`, `ALLOWED_GROUP_2`, … | WhatsApp MCP | One group name or `@g.us` JID per number. Add as many as you need |
+| `ALLOWED_GROUP_1`, `ALLOWED_GROUP_2`, … | WhatsApp MCP | Optional fallback until a selection is saved on the bridge page |
 | `WHISPER_MCP_URL`, `WHISPER_MODEL`, `WHISPER_LANGUAGE`, `WHISPER_DEVICE` | WhatsApp MCP and Whisper | Local transcription |
 | `DEEPSEEK_API_KEY`, `DEEPSEEK_BASE_URL`, `DEEPSEEK_MODEL` | Agent | Digest model |
 | `DIGEST_TIMEZONE` | Agent and bot | Window and clock, default `Europe/Madrid` |

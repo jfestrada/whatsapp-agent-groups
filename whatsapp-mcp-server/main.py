@@ -7,6 +7,8 @@ from mcp.server.fastmcp import FastMCP
 from whatsapp import (
     AllowlistError,
     load_allowlist,
+    selection_path,
+    allowed_jids,
     search_contacts as whatsapp_search_contacts,
     list_messages as whatsapp_list_messages,
     count_messages as whatsapp_count_messages,
@@ -283,9 +285,12 @@ def download_media(message_id: str, chat_jid: str) -> Dict[str, Any]:
 
 if __name__ == "__main__":
     try:
-        load_allowlist()
+        if os.path.isfile(selection_path()):
+            allowed_jids()
+        else:
+            load_allowlist()
     except AllowlistError as exc:
-        print(f"Allowlist error: {exc}", file=sys.stderr)
-        raise SystemExit(1)
+        print(f"No groups selected yet: {exc}", file=sys.stderr)
+        print("Choose groups on the bridge page. Until then, no chat is readable.", file=sys.stderr)
     # streamable-http serves http://<host>:<port>/mcp. Set MCP_TRANSPORT=stdio for a local client.
     mcp.run(transport=os.environ.get("MCP_TRANSPORT", "streamable-http"))

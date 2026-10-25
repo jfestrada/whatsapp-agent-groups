@@ -784,18 +784,7 @@ func startRESTServer(client *whatsmeow.Client, messageStore *MessageStore, store
 	http.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")
-		fmt.Fprint(w, `<!DOCTYPE html>
-<meta charset="utf-8">
-<title>Link WhatsApp</title>
-<p>Scan this from WhatsApp: Settings, Linked devices, Link a device. The image refreshes by itself. Scan the image on this page, not a screenshot.</p>
-<img id="qr" alt="WhatsApp QR code" width="360" height="360">
-<script>
-const img = document.getElementById("qr");
-function refresh() { img.src = "/qr.png?t=" + Date.now(); }
-refresh();
-setInterval(refresh, 15000);
-</script>
-`)
+		fmt.Fprint(w, linkPage)
 	})
 
 	// Handler for sending messages
@@ -989,6 +978,7 @@ func main() {
 	if client.Store.ID == nil {
 		status.set("waiting_for_qr")
 	}
+	registerGroupRoutes(client, messageStore, storeDir, status)
 	startRESTServer(client, messageStore, storeDir, port, status, qrPath)
 
 	// Create channel to track connection success
